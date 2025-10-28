@@ -242,6 +242,51 @@ RSI indicators (14-Period): ${JSON.stringify(formatArray(longtermRsi14))}
     return prompt;
 }
 
+// 获取单个币种的所有数据
+async function fetchSingleCoinAllData(coin) {
+    const symbolSpot = `${coin}/USDT`;
+    const symbolPerp = `${coin}/USDT:USDT`;
+    
+    // console.log(`Fetching data for ${coin}...`);
+    
+    try {
+        // 并行获取所有数据
+        const [intradayData, longtermData, fundingRate, openInterestLatest, oiHistory] = await Promise.all([
+            fetchCoinData(symbolSpot, '3m', 100),
+            fetchCoinData(symbolSpot, '4h', 100),
+            fetchFundingRate(symbolPerp),
+            fetchOpenInterest(symbolPerp),
+            fetchOpenInterestHistory(symbolPerp, '1h', 50)
+        ]);
+        
+        // 检查必需数据
+        if (!intradayData || !longtermData) {
+            console.error(`Failed to fetch required data for ${coin}`);
+            return null;
+        }
+        
+        // 计算未平仓合约平均值
+        let openInterestAvg = null;
+        if (oiHistory && oiHistory.length > 0) {
+            openInterestAvg = oiHistory.reduce((sum, val) => sum + val, 0) / oiHistory.length;
+        } else if (openInterestLatest !== null) {
+            openInterestAvg = openInterestLatest;
+        }
+        
+        return {
+            coin,
+            intradayData,
+            longtermData,
+            fundingRate,
+            openInterestLatest,
+            openInterestAvg
+        };
+    } catch (error) {
+        console.error(`Error fetching data for ${coin}:`, error.message);
+        return null;
+    }
+}
+
 // 生成完整的prompt
 async function generateFullPrompt(coins = DEFAULT_COINS) {
     const promptHeader = `ALL OF THE PRICE OR SIGNAL DATA BELOW IS ORDERED: OLDEST → NEWEST
@@ -251,38 +296,20 @@ CURRENT MARKET STATE FOR ALL COINS
 
 `;
     
+    console.log(`Fetching data for ${coins.length} coins in parallel...`);
+    
+    // 并行获取所有币种的数据
+    const allCoinData = await Promise.all(
+        coins.map(coin => fetchSingleCoinAllData(coin))
+    );
+    
+    // 过滤掉失败的请求，生成prompt
     let fullPrompt = promptHeader;
     
-    for (const coin of coins) {
-        const symbolSpot = `${coin}/USDT`;
-        const symbolPerp = `${coin}/USDT:USDT`;
+    for (const coinData of allCoinData) {
+        if (!coinData) continue;
         
-        console.log(`Fetching data for ${coin}...`);
-        
-        // 获取3分钟数据
-        const intradayData = await fetchCoinData(symbolSpot, '3m', 100);
-        if (!intradayData) continue;
-        
-        // 获取4小时数据
-        const longtermData = await fetchCoinData(symbolSpot, '4h', 100);
-        if (!longtermData) continue;
-        
-        // 获取资金费率
-        console.log(`  Fetching funding rate for ${coin}...`);
-        const fundingRate = await fetchFundingRate(symbolPerp);
-        
-        // 获取最新未平仓合约
-        console.log(`  Fetching open interest for ${coin}...`);
-        const openInterestLatest = await fetchOpenInterest(symbolPerp);
-        
-        // 获取未平仓合约历史数据以计算平均值
-        let openInterestAvg = null;
-        const oiHistory = await fetchOpenInterestHistory(symbolPerp, '1h', 50);
-        if (oiHistory && oiHistory.length > 0) {
-            openInterestAvg = oiHistory.reduce((sum, val) => sum + val, 0) / oiHistory.length;
-        } else if (openInterestLatest !== null) {
-            openInterestAvg = openInterestLatest;
-        }
+        const { coin, intradayData, longtermData, fundingRate, openInterestLatest, openInterestAvg } = coinData;
         
         // 生成该币种的prompt
         const coinPrompt = generateCoinPrompt(
@@ -295,10 +322,9 @@ CURRENT MARKET STATE FOR ALL COINS
         );
         
         fullPrompt += coinPrompt + '\n';
-        
-        // 避免请求过快
-        await new Promise(resolve => setTimeout(resolve, 500));
     }
+    
+    console.log('Data fetching completed!');
     
     return fullPrompt;
 }
@@ -363,28 +389,16 @@ app.get('/api/coin/:symbol', async (req, res) => {
         const { symbol } = req.params;
         const coin = symbol.toUpperCase();
         
-        const symbolSpot = `${coin}/USDT`;
-        const symbolPerp = `${coin}/USDT:USDT`;
+        const coinData = await fetchSingleCoinAllData(coin);
         
-        const intradayData = await fetchCoinData(symbolSpot, '3m', 100);
-        if (!intradayData) {
+        if (!coinData) {
             return res.status(404).json({
                 error: 'Coin not found',
                 message: `Unable to fetch data for ${coin}`
             });
         }
         
-        const longtermData = await fetchCoinData(symbolSpot, '4h', 100);
-        const fundingRate = await fetchFundingRate(symbolPerp);
-        const openInterestLatest = await fetchOpenInterest(symbolPerp);
-        
-        let openInterestAvg = null;
-        const oiHistory = await fetchOpenInterestHistory(symbolPerp, '1h', 50);
-        if (oiHistory && oiHistory.length > 0) {
-            openInterestAvg = oiHistory.reduce((sum, val) => sum + val, 0) / oiHistory.length;
-        } else if (openInterestLatest !== null) {
-            openInterestAvg = openInterestLatest;
-        }
+        const { intradayData, longtermData, fundingRate, openInterestLatest, openInterestAvg } = coinData;
         
         const prompt = generateCoinPrompt(
             coin,
