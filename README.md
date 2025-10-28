@@ -1,0 +1,2 @@
+# Coin2Prompt
+自动获取所需Cryptocurrency的所有信息并生成AI Prompt的云函数
