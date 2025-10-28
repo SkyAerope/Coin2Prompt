@@ -1,0 +1,28 @@
+{
+  "name": "coin2prompt",
+  "version": "1.0.0",
+  "description": "自动获取所需Cryptocurrency的所有信息并生成AI Prompt的云函数",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "cryptocurrency",
+    "api",
+    "trading",
+    "ccxt",
+    "express"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.15.1",
+  "dependencies": {
+    "express": "^5.1.0",
+    "ccxt": "^4.5.13"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
